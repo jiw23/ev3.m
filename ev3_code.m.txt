@@ -1,0 +1,306 @@
+a)
+lego = EV3();
+lego.connect("usb");
+
+% Vorgabe aus der Aufgaben-Tabelle
+meas_cm = [5 10 20 30 40 50 70 100 150 200 250 300];
+
+sensor_cm = nan(size(meas_cm));
+
+disp("Aufgabe (a): Stelle das Hindernis auf den angegebenen Abstand (Maßband).");
+disp("Dann ENTER drücken, um den Ultraschallwert aufzunehmen.");
+
+for i = 1:numel(meas_cm)
+    fprintf("\nMaßband-Abstand = %d cm -> ENTER zum Messen...", meas_cm(i));
+    input("","s");
+
+    % Optional: mehrere Messungen mitteln (stabiler)
+    n = 5;
+    tmp = nan(1,n);
+    for k = 1:n
+        tmp(k) = lego.sensor4.value;   % 255 = kein Echo (falls zu weit/kein Objekt)
+        pause(0.05);
+    end
+    sensor_cm(i) = mean(tmp(tmp ~= 255));  % ignoriert 255 beim Mittelwert
+    fprintf("  Sensorwert ≈ %.1f cm\n", sensor_cm(i));
+end
+
+lego.disconnect();
+
+% Tabelle ausgeben
+T = table(meas_cm(:), sensor_cm(:), 'VariableNames', {'Messabstand_cm','Sensorabstand_cm'});
+disp(T);
+
+% Plot: Sensor vs Maßband
+figure;
+plot(meas_cm, sensor_cm, 'o-');
+grid on;
+xlabel('Messabstand (Maßband) [cm]');
+ylabel('Sensorabstand [cm]');
+title('Aufgabe (a): Ultraschallmessreihe');
+
+% Nullpunkt/Offset: Sensor - Maßband
+offset = sensor_cm - meas_cm;
+figure;
+plot(meas_cm, offset, 'o-');
+grid on;
+xlabel('Messabstand (Maßband) [cm]');
+ylabel('Offset = Sensor - Maßband [cm]');
+title('Hinweis auf Nullpunktlage (Offset)');
+
+in matlab ausführen:
+
+
+b)
+
+% Aufgabe (b): Winkelbereich bestimmen, in dem Objekte noch erkannt werden
+% Sensor: Port 4, USB
+% Hinweis: 255 = kein Echo / nicht erkannt
+
+lego = EV3();
+lego.connect("usb");
+
+% ---- Einstellungen ----
+fixedDistance_cm = 50;                 % Abstand konstant halten (z.B. 50 cm)
+angles_deg = -60:5:60;                 % Winkel, die du abläufst (anpassbar)
+objects = ["Karton", "Glasflasche"];   % Objekte, die du testen willst
+
+% Ergebnisse speichern:
+% dist(objIndex, angleIndex)
+dist = nan(numel(objects), numel(angles_deg));
+detected = false(numel(objects), numel(angles_deg));
+
+disp("Aufgabe (b): Halte den Abstand konstant bei " + fixedDistance_cm + " cm.");
+disp("Stelle für jeden Winkel das Objekt entsprechend und drücke ENTER zum Messen.");
+disp("Erkannt: Sensorwert < 255  |  Nicht erkannt: 255");
+
+for o = 1:numel(objects)
+    fprintf("\n==============================\n");
+    fprintf("Objekt: %s\n", objects(o));
+    fprintf("==============================\n");
+
+    for i = 1:numel(angles_deg)
+        fprintf("Winkel %+d° einstellen -> ENTER...", angles_deg(i));
+        input("","s");
+
+        % Optional stabiler: Mittelwert aus mehreren Messungen
+        n = 5;
+        tmp = nan(1,n);
+        for k = 1:n
+            tmp(k) = lego.sensor4.value;
+            pause(0.05);
+        end
+
+        % Wenn alles 255 ist -> keine Erkennung
+        if all(tmp == 255)
+            dist(o,i) = 255;
+            detected(o,i) = false;
+        else
+            dist(o,i) = mean(tmp(tmp ~= 255));   % 255 ignorieren
+            detected(o,i) = true;
+        end
+
+        fprintf("  Sensor = %.1f cm | erkannt = %d\n", dist(o,i), detected(o,i));
+    end
+end
+
+lego.disconnect();
+
+% ---- Grafische Darstellung ----
+
+% 1) Abstand vs Winkel (pro Objekt eine Kurve)
+figure;
+hold on;
+for o = 1:numel(objects)
+    plot(angles_deg, dist(o,:), 'o-');
+end
+grid on;
+xlabel("Winkel zur Zentrallinie [°]");
+ylabel("Sensorabstand [cm] (255 = kein Echo)");
+title("Aufgabe (b): Messwert über Winkel (konstanter Abstand)");
+legend(objects, "Location", "best");
+hold off;
+
+% 2) Erkannt / Nicht erkannt (0/1) vs Winkel
+figure;
+hold on;
+for o = 1:numel(objects)
+    stairs(angles_deg, detected(o,:), "LineWidth", 2);
+end
+grid on;
+ylim([-0.1 1.1]);
+xlabel("Winkel zur Zentrallinie [°]");
+ylabel("Erkannt (1) / Nicht erkannt (0)");
+title("Aufgabe (b): Erkennungsbereich über Winkel");
+legend(objects, "Location", "best");
+hold off;
+
+% ---- Winkelgrenzen ausgeben ----
+for o = 1:numel(objects)
+    idx = find(detected(o,:));
+    if isempty(idx)
+        fprintf("\n%s: bei keinem Winkel erkannt.\n", objects(o));
+    else
+        leftLim  = angles_deg(idx(1));
+        rightLim = angles_deg(idx(end));
+        fprintf("\n%s: erkannt im Bereich [%d°, %d°]\n", objects(o), leftLim, rightLim);
+    end
+end
+
+
+C)
+clear all;
+
+%% ===== EV3-Verbindung =====
+ev3 = EV3();
+ev3.connect('usb');
+
+%% ===== Ports =====
+us      = ev3.sensor4;   % Ultraschallsensor
+scanM   = ev3.motorA;    % Scan-Motor (dreht den Ultraschallsensor)
+turretM = ev3.motorC;    % Turm-Motor (dreht den Geschützturm)
+fireM   = ev3.motorD;    % Abschuss-Motor
+
+%% ===== Parameter =====
+SCAN_DEG         = 180;  % Scanwinkel (Grad)
+SCAN_POWER       = 25;   % Scan-Geschwindigkeit
+TURRET_POWER     = 10;   % Turm-Geschwindigkeit
+FIRE_POWER       = 80;   % Abschuss-Leistung
+FIRE_TACHO       = 360;  % Abschuss-Drehwinkel (Tacho-Wert)
+MAX_VALID_CM     = 200;  % Maximal gültige Entfernung (cm)
+DELAY_AFTER_SCAN = 3;    % Wartezeit nach dem Scan (Sekunden)
+
+%% ===== Motor-Grundeinstellungen =====
+scanM.brakeMode = 'Coast';
+scanM.speedRegulation = 'On';
+
+turretM.brakeMode = 'Coast';
+turretM.speedRegulation = 'On';
+
+fireM.brakeMode = 'Coast';
+fireM.speedRegulation = 'On';
+
+%% ============================================================
+%% 1) 180° scannen und Richtung des nächsten Objekts bestimmen
+%% ============================================================
+scanM.resetTachoCount();
+
+scanM.limitMode  = 'Tacho';
+scanM.limitValue = SCAN_DEG;     
+scanM.power      = -SCAN_POWER;
+
+thetaDeg = [];    % Winkelwerte (Grad)
+rhoCm    = [];    % Distanzwerte (cm)
+
+scanM.start();
+
+while scanM.isRunning
+    d = double(us.value);          % cm, 255 bedeutet "kein Echo"
+    a = double(scanM.tachoCount);  % aktueller Scanwinkel in Grad (TachoCount)
+
+    % Gültige Messwerte filtern
+   if d ~= 255 && d > 36 && d < MAX_VALID_CM
+    thetaDeg(end+1) = a; %#ok<SAGROW>
+    rhoCm(end+1)    = d; %#ok<SAGROW>
+   end
+
+
+    pause(0.03); % Abtastintervall
+end
+
+% Scan sicher stoppen
+scanM.stop();
+
+if isempty(rhoCm)
+    disp('Kein gültiges Objekt gefunden (nur 255 oder außerhalb des Bereichs).');
+    return;
+end
+
+% Winkel mit minimaler Distanz wählen (nächstes Objekt)
+[~, idx] = min(rhoCm);
+targetAngleDeg = thetaDeg(idx);
+
+fprintf('Nächstes Objekt: Entfernung %.1f cm, Winkel %.1f deg\n', rhoCm(idx), targetAngleDeg);
+
+
+%% ============================================================
+%% Radar-Darstellung mit markiertem Zielpunkt
+%% ============================================================
+
+thetaRad = deg2rad(thetaDeg);                 % Scan-Winkel (Radiant)
+targetThetaRad = deg2rad(targetAngleDeg);     % Ziel-Winkel (Radiant)
+
+figure;
+polarplot(thetaRad, rhoCm, 'b.', 'MarkerSize', 10); 
+hold on;
+
+
+polarplot(targetThetaRad, rhoCm(idx), 'ro', ...
+          'MarkerSize', 14, ...   
+          'LineWidth', 2);         
+
+
+rlim([0 MAX_VALID_CM]);
+thetalim([0 180]);
+grid on;
+
+set(gca, 'ThetaZeroLocation', 'top');   
+set(gca, 'ThetaDir', 'clockwise');      
+
+title('Ultraschall-Radar mit Zielmarkierung');
+legend('Messpunkte', 'Ausgewähltes Ziel');
+
+
+%% ============================================================
+%% 1b) Direkt nach dem Scan den Sensor wieder zur Startposition zurückdrehen
+%%     (mit derselben Geschwindigkeit wie beim Scan)
+%% ============================================================
+currentScanDeg = double(scanM.tachoCount);  % sollte ~180 sein, kann aber abweichen
+if abs(currentScanDeg) > 1
+    scanM.limitMode  = 'Tacho';
+    scanM.limitValue = round(abs(currentScanDeg));  % zurück bis 0
+    scanM.power      = -sign(currentScanDeg) * SCAN_POWER; % gleiche Geschwindigkeit, zurück
+
+    scanM.start();
+    scanM.waitFor(); % warten bis der Scan-Motor wieder auf 0 ist
+end
+
+%% ===== Nach dem Rückdrehen kurz warten =====
+%pause(DELAY_AFTER_SCAN);
+
+%% ============================================================
+%% 2) Turm in Richtung targetAngleDeg drehen
+%%    (Annahme: Scanwinkel = Turmwinkel, 1:1. Bei Getriebe Übersetzung anpassen.)
+%% ============================================================
+turretM.resetTachoCount();   % Turm-Nullpunkt setzen (0°)
+
+currentTurretDeg = double(turretM.tachoCount);
+
+delta = targetAngleDeg - currentTurretDeg; 
+
+if abs(delta) < 2
+    disp('Der Turm steht bereits (fast) auf dem Zielwinkel.');
+else
+    turretM.limitMode  = 'Tacho';
+    turretM.limitValue = round(abs(delta));
+    turretM.power      = sign(delta) * TURRET_POWER;
+
+    turretM.start();
+    turretM.waitFor();   % warten bis fertig
+end
+
+%% ============================================================
+%% 3) Abschuss (zeitgesteuert: 5 Sekunden)
+%% ============================================================
+
+     % Winkelbegrenzung aus (keine Tacho-Regelung)
+fireM.power     = FIRE_POWER;
+
+fireM.start();               % Abschuss starten
+pause(1);                    % 3 Sekunden feuern (Zeitsteuerung)
+fireM.stop();                % Abschuss stoppen
+
+disp('Abschuss nach 3 Sekunden beendet.');
+
+
+
